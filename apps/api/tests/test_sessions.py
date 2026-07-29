@@ -52,7 +52,7 @@ def test_normalize_voice_for_speak_keeps_indextts_voice_ids(tts_provider: str) -
 
 @pytest.mark.parametrize(
     "model",
-    ["fasterliveportrait", "quicktalk", "musetalk", "wav2lip"],
+    ["mock", "fasterliveportrait", "quicktalk", "musetalk", "wav2lip"],
 )
 def test_audio_renderer_models_are_flashtalk_compatible_for_audio_upload(model: str) -> None:
     assert sessions_routes._is_flashtalk_compatible_model(model) is True
