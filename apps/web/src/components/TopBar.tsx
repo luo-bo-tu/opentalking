@@ -90,7 +90,7 @@ export function TopBar({
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-slate-950">
             <span className="sm:hidden">企鹅派</span>
-            <span className="hidden sm:inline">企鹅派 qiepai · Studio</span>
+            <span className="hidden sm:inline">企鹅派·企业数字人</span>
           </p>
           <p className="hidden truncate text-xs text-slate-500 sm:block">企业数字人 IP 工作台</p>
         </div>
