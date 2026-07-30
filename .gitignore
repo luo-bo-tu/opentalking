@@ -87,3 +87,5 @@ docs/superpowers/
 
 # MkDocs build output
 site/
+examples/avatars/qiepai-penguin/
+examples/avatars/custom-*/
