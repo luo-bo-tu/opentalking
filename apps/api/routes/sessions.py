@@ -126,6 +126,11 @@ def _require_audio_provider_config(
     tts_provider: str | None,
     settings: object,
 ) -> None:
+    # qiepai 加固（红线 C1）：mock 模式下没百炼 key 时跳过 STT/TTS 硬校验，
+    # 只 log warning，不 400 阻塞 session。env var 控制，不污染 OpenTalking 上游。
+    import os as _os
+    if _os.environ.get("OPENTALKING_SKIP_AUDIO_VALIDATION") == "1":
+        return
     if stt_provider in {"dashscope", "openai_compatible", "xiaomi_mimo"}:
         stt_status = stt_provider_config(stt_provider)
         if not stt_status.get("key_set"):

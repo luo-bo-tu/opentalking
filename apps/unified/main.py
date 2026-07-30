@@ -13,6 +13,57 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# qiepai 加固：手动启动时也加载 .env（OpenTalking 上游依赖 quickstart 脚本 source）
+try:
+    from dotenv import load_dotenv
+    _repo_root = Path(__file__).resolve().parents[2]
+    _env_file = _repo_root / ".env"
+    if _env_file.is_file():
+        load_dotenv(_env_file, override=False)
+except ImportError:
+    pass  # 没装 dotenv 就跳过
+
+import logging as _logging
+_log = _logging.getLogger(__name__)
+
+# qiepai 加固（红线 C1）：embedding 失败绝不能传 None 给下游。
+# monkey-patch lightrag.openai_embed：如果 embedding API 返回空（key 错 / 超时 / response.data 是 None），
+# 返回零向量不抱崩溃。patch 在 lightrag 被 import 后立刻生效。
+# 为最小污染 OpenTalking，此 patch 只作用于 qiepai 进程，运行后不可逆。
+if os.environ.get("OPENTALKING_SAFE_EMBEDDING") != "0":
+    try:
+        import numpy as _np
+        import lightrag.llm.openai as _lro
+
+        _orig_inner = getattr(_lro.openai_embed, "func", _lro.openai_embed)
+        _orig_inner = getattr(_orig_inner, "func", _orig_inner)
+
+        async def _safe_openai_embed(texts, *args, **kwargs):
+            try:
+                result = await _orig_inner(texts, *args, **kwargs)
+                if result is None:
+                    dim = kwargs.get("embedding_dim") or 768
+                    n = len(texts) if texts else 1
+                    _log.warning(
+                        "qiepai safe-embed: %s returned None, falling back to zero vectors dim=%s n=%s",
+                        kwargs.get("model"), dim, n,
+                    )
+                    return _np.zeros((n, dim), dtype=_np.float32)
+                return result
+            except (TypeError, AttributeError, ValueError) as exc:
+                dim = kwargs.get("embedding_dim") or 768
+                n = len(texts) if texts else 1
+                _log.warning(
+                    "qiepai safe-embed: %s raised %s, falling back to zero vectors dim=%s n=%s",
+                    kwargs.get("model"), type(exc).__name__, dim, n,
+                )
+                return _np.zeros((n, dim), dtype=_np.float32)
+
+        _lro.openai_embed.func.func = _safe_openai_embed
+        _log.info("qiepai safe-embed patch applied to lightrag.openai_embed")
+    except Exception as _patch_exc:
+        _log.warning("qiepai safe-embed patch failed: %s", _patch_exc)
+
 # legacy registry import removed
 import uvicorn
 from fastapi import FastAPI
