@@ -87,15 +87,3 @@ docs/superpowers/
 
 # MkDocs build output
 site/
-
-# OpenTalking qiepai fork 加固红线 F1 + C2
-data/knowledge/
-data/knowledge/**
-~/.mem0/
-*.mem0
-.env
-.env.local
-.env.*.local
-keys/
-**/*.key
-**/secrets.*
