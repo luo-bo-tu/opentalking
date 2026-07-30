@@ -89,3 +89,5 @@ docs/superpowers/
 site/
 examples/avatars/qiepai-penguin/
 examples/avatars/custom-*/
+models/local-audio/
+models/
