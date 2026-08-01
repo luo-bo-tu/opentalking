@@ -9,7 +9,12 @@ const apiProxy = {
   target: `http://127.0.0.1:${backendPort}`,
   changeOrigin: true,
   ws: true,
-  rewrite: (p: string) => p.replace(/^\/api/, ""),
+  // Backend mounts qiepai/agent routers under /api/* (see apps/unified/main.py
+  // line 340/351: include_router(..., prefix="/api")). The original upstream
+  // strip-`/api` rewrite made /api/qiepai/* requests become /qiepai/* after
+  // the proxy hop — backend only knows /api/qiepai/* and returns 404. Keep
+  // the full path so the proxy is a transparent tunnel.
+  rewrite: (p: string) => p,
   // SSE (EventSource) through proxy: avoid buffering / stale Content-Length
   configure(proxy) {
     proxy.on("proxyRes", (proxyRes, req) => {
