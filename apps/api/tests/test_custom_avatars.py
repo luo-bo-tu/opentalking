@@ -613,6 +613,13 @@ def test_quicktalk_model_root_falls_back_to_omnirt_model_root(tmp_path, monkeypa
     monkeypatch.delenv("OPENTALKING_QUICKTALK_ASSET_ROOT", raising=False)
     monkeypatch.delenv("OPENTALKING_QUICKTALK_MODEL_ROOT", raising=False)
     monkeypatch.delenv("OMNIRT_QUICKTALK_MODEL_ROOT", raising=False)
+    # .env load_dotenv（在 apps/unified/main.py import 时跑）会把
+    # OPENTALKING_MODEL_ROOT / DIGITAL_HUMAN_HOME 注入到 process env，
+    # 导致 resolve_quicktalk_asset_root() 的 “default_candidate” 抢占优先级，
+    # OMNIRT_MODEL_ROOT 这个 deprecated 回退路径就拿不到了。
+    # 测试验证的是“只有 OMNIRT_MODEL_ROOT” 这一纯净场景，所以显式清掉。
+    monkeypatch.delenv("OPENTALKING_MODEL_ROOT", raising=False)
+    monkeypatch.delenv("DIGITAL_HUMAN_HOME", raising=False)
     monkeypatch.setenv("OMNIRT_MODEL_ROOT", str(tmp_path / "shared-models"))
 
     settings = SimpleNamespace(models_dir=str(tmp_path / "repo-models"))
@@ -629,6 +636,10 @@ def test_quicktalk_model_root_prefers_asset_root_setting_and_env(tmp_path, monke
     monkeypatch.setenv("OPENTALKING_QUICKTALK_MODEL_ROOT", str(tmp_path / "legacy-env-root"))
     monkeypatch.setenv("OMNIRT_QUICKTALK_MODEL_ROOT", str(tmp_path / "omnirt-env-root"))
     monkeypatch.setenv("OMNIRT_MODEL_ROOT", str(tmp_path / "shared-models"))
+    # 同 test_quicktalk_model_root_falls_back_to_omnirt_model_root 的原因：避免
+    # .env load_dotenv 注入的 default_candidate 抢占 priority 顺序。
+    monkeypatch.delenv("OPENTALKING_MODEL_ROOT", raising=False)
+    monkeypatch.delenv("DIGITAL_HUMAN_HOME", raising=False)
 
     settings = SimpleNamespace(
         models_dir=str(tmp_path / "repo-models"),

@@ -30,6 +30,9 @@ def _client(monkeypatch, tmp_path: Path) -> TestClient:
     monkeypatch.delenv("CONFIG_FILE", raising=False)
     monkeypatch.delenv("OMNIRT_ENDPOINT", raising=False)
     monkeypatch.delenv("OPENTALKING_OMNIRT_ENDPOINT", raising=False)
+    # qiepai 加固（红线 C1）默认开启 mock-mode 跳过 STT/TTS 硬校验；这些测试
+    # 必须验证 gate 自身的拒绝逻辑，所以显式清除该 flag，让真实 gate 跑起来。
+    monkeypatch.delenv("OPENTALKING_SKIP_AUDIO_VALIDATION", raising=False)
     monkeypatch.chdir(tmp_path)
     avatars_dir = Path(__file__).resolve().parents[3] / "examples" / "avatars"
     monkeypatch.setenv("OPENTALKING_AVATARS_DIR", str(avatars_dir))
