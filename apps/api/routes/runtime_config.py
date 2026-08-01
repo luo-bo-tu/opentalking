@@ -34,6 +34,16 @@ _RUNTIME_ENV_KEYS = {
     "OPENTALKING_LLM_BASE_URL",
     "OPENTALKING_LLM_API_KEY",
     "OPENTALKING_LLM_MODEL",
+    "OPENTALKING_LLM_OPENCLAW_GATEWAY_URL",
+    "OPENTALKING_LLM_OPENCLAW_GATEWAY_TOKEN",
+    "OPENTALKING_LLM_OPENCLAW_AGENT_ID",
+    "OPENTALKING_LLM_OPENCLAW_TASK_PROMPT_TEMPLATE",
+    "OPENTALKING_LLM_OPENCLAW_MODEL",
+    "OPENTALKING_LLM_OPENCLAW_RUN_TIMEOUT_SECONDS",
+    "OPENTALKING_LLM_OPENCLAW_POLL_INTERVAL_SECONDS",
+    "OPENTALKING_LLM_OPENCLAW_REQUEST_TIMEOUT_SECONDS",
+    "OPENTALKING_LLM_OPENCLAW_THINKING",
+    "OPENTALKING_LLM_OPENCLAW_CONTEXT",
     "OPENTALKING_STT_DEFAULT_PROVIDER",
     "OPENTALKING_STT_ENABLED_PROVIDERS",
     "OPENTALKING_STT_MODEL",
@@ -105,6 +115,16 @@ class RuntimeConfigPayload(BaseModel):
     llm_base_url: Optional[str] = Field(default=None, max_length=2048)
     llm_model: Optional[str] = Field(default=None, max_length=256)
     llm_api_key: Optional[str] = Field(default=None, max_length=4096)
+    llm_openclaw_gateway_url: Optional[str] = Field(default=None, max_length=2048)
+    llm_openclaw_gateway_token: Optional[str] = Field(default=None, max_length=4096)
+    llm_openclaw_agent_id: Optional[str] = Field(default=None, max_length=128)
+    llm_openclaw_task_prompt_template: Optional[str] = Field(default=None, max_length=4096)
+    llm_openclaw_model: Optional[str] = Field(default=None, max_length=256)
+    llm_openclaw_run_timeout_seconds: Optional[int] = Field(default=None, ge=1, le=86400)
+    llm_openclaw_poll_interval_seconds: Optional[float] = Field(default=None, ge=0.1, le=60.0)
+    llm_openclaw_request_timeout_seconds: Optional[float] = Field(default=None, ge=5.0, le=600.0)
+    llm_openclaw_thinking: Optional[str] = Field(default=None, max_length=64)
+    llm_openclaw_context: Optional[str] = Field(default=None, max_length=32)
     stt_provider: Optional[str] = Field(default=None, max_length=64)
     stt_base_url: Optional[str] = Field(default=None, max_length=2048)
     stt_model: Optional[str] = Field(default=None, max_length=256)
@@ -503,6 +523,23 @@ def _current_payload(settings: Any | None = None) -> dict[str, Any]:
             "base_url": _env_value(values, "OPENTALKING_LLM_BASE_URL", _settings_value(settings, "llm_base_url")).rstrip("/"),
             "model": _env_value(values, "OPENTALKING_LLM_MODEL", _settings_value(settings, "llm_model", "qwen-flash")),
             "api_key_set": bool(llm_key),
+            "provider": _env_value(values, "OPENTALKING_LLM_PROVIDER", _settings_value(settings, "llm_provider", "openai_compatible")) or "openai_compatible",
+            "openclaw": {
+                "gateway_url": _env_value(values, "OPENTALKING_LLM_OPENCLAW_GATEWAY_URL", _settings_value(settings, "llm_openclaw_gateway_url")),
+                "agent_id": _env_value(values, "OPENTALKING_LLM_OPENCLAW_AGENT_ID", _settings_value(settings, "llm_openclaw_agent_id")),
+                "token_set": bool(_env_value(values, "OPENTALKING_LLM_OPENCLAW_GATEWAY_TOKEN", _settings_value(settings, "llm_openclaw_gateway_token"))),
+                "task_prompt_template": _env_value(
+                    values,
+                    "OPENTALKING_LLM_OPENCLAW_TASK_PROMPT_TEMPLATE",
+                    _settings_value(settings, "llm_openclaw_task_prompt_template", "{prompt}"),
+                ) or "{prompt}",
+                "model": _env_value(values, "OPENTALKING_LLM_OPENCLAW_MODEL", _settings_value(settings, "llm_openclaw_model")),
+                "thinking": _env_value(values, "OPENTALKING_LLM_OPENCLAW_THINKING", _settings_value(settings, "llm_openclaw_thinking")),
+                "context": _env_value(values, "OPENTALKING_LLM_OPENCLAW_CONTEXT", _settings_value(settings, "llm_openclaw_context", "isolated")) or "isolated",
+                "run_timeout_seconds": int(_env_value(values, "OPENTALKING_LLM_OPENCLAW_RUN_TIMEOUT_SECONDS", _settings_value(settings, "llm_openclaw_run_timeout_seconds", "600")) or 600),
+                "poll_interval_seconds": float(_env_value(values, "OPENTALKING_LLM_OPENCLAW_POLL_INTERVAL_SECONDS", _settings_value(settings, "llm_openclaw_poll_interval_seconds", "1.5")) or 1.5),
+                "request_timeout_seconds": float(_env_value(values, "OPENTALKING_LLM_OPENCLAW_REQUEST_TIMEOUT_SECONDS", _settings_value(settings, "llm_openclaw_request_timeout_seconds", "65.0")) or 65.0),
+            },
         },
         "stt": _current_stt_payload(stt_provider, settings, values),
         "tts": _current_tts_payload(tts_provider, settings, values),
@@ -521,6 +558,26 @@ def _build_updates(payload: RuntimeConfigPayload) -> dict[str, str]:
     if value := _strip(payload.llm_api_key):
         updates["OPENTALKING_LLM_API_KEY"] = value
         sync_key = value
+    if value := _strip(payload.llm_openclaw_gateway_url):
+        updates["OPENTALKING_LLM_OPENCLAW_GATEWAY_URL"] = value.rstrip("/")
+    if value := _strip(payload.llm_openclaw_gateway_token):
+        updates["OPENTALKING_LLM_OPENCLAW_GATEWAY_TOKEN"] = value
+    if value := _strip(payload.llm_openclaw_agent_id):
+        updates["OPENTALKING_LLM_OPENCLAW_AGENT_ID"] = value
+    if value := _strip(payload.llm_openclaw_task_prompt_template):
+        updates["OPENTALKING_LLM_OPENCLAW_TASK_PROMPT_TEMPLATE"] = value
+    if value := _strip(payload.llm_openclaw_model):
+        updates["OPENTALKING_LLM_OPENCLAW_MODEL"] = value
+    if payload.llm_openclaw_run_timeout_seconds is not None:
+        updates["OPENTALKING_LLM_OPENCLAW_RUN_TIMEOUT_SECONDS"] = str(int(payload.llm_openclaw_run_timeout_seconds))
+    if payload.llm_openclaw_poll_interval_seconds is not None:
+        updates["OPENTALKING_LLM_OPENCLAW_POLL_INTERVAL_SECONDS"] = str(float(payload.llm_openclaw_poll_interval_seconds))
+    if payload.llm_openclaw_request_timeout_seconds is not None:
+        updates["OPENTALKING_LLM_OPENCLAW_REQUEST_TIMEOUT_SECONDS"] = str(float(payload.llm_openclaw_request_timeout_seconds))
+    if value := _strip(payload.llm_openclaw_thinking):
+        updates["OPENTALKING_LLM_OPENCLAW_THINKING"] = value
+    if value := _strip(payload.llm_openclaw_context):
+        updates["OPENTALKING_LLM_OPENCLAW_CONTEXT"] = value
 
     stt_provider = ""
     if raw := _strip(payload.stt_provider):
@@ -656,20 +713,81 @@ def _refresh_live_runners(request: Request, settings: Any) -> int:
         return 0
     count = 0
     for runner in list(runners.values()):
+        # Capture the *current* provider before we mutate ``_llm_provider``
+        # so the legacy ``runner.llm`` rebuild below uses the old value.
+        provider = getattr(runner, "_llm_provider", None) or settings.llm_provider
         if hasattr(runner, "_llm_base_url"):
+            runner._llm_provider = settings.llm_provider
             runner._llm_base_url = settings.llm_base_url
             runner._llm_api_key = settings.llm_api_key
             runner._llm_model = settings.llm_model
+            runner._llm_openclaw_gateway_url = settings.llm_openclaw_gateway_url
+            runner._llm_openclaw_gateway_token = settings.llm_openclaw_gateway_token
+            runner._llm_openclaw_agent_id = settings.llm_openclaw_agent_id
+            runner._llm_openclaw_task_prompt_template = settings.llm_openclaw_task_prompt_template
+            runner._llm_openclaw_model = settings.llm_openclaw_model
+            runner._llm_openclaw_run_timeout_seconds = settings.llm_openclaw_run_timeout_seconds
+            runner._llm_openclaw_poll_interval_seconds = settings.llm_openclaw_poll_interval_seconds
+            runner._llm_openclaw_request_timeout_seconds = settings.llm_openclaw_request_timeout_seconds
+            runner._llm_openclaw_thinking = settings.llm_openclaw_thinking
+            runner._llm_openclaw_context = settings.llm_openclaw_context
             runner._llm_client = None
             count += 1
+        elif hasattr(runner, "_llm_provider"):
+            # B2: FlashTalkRunner (no ``_llm_base_url``) also needs its
+            # provider + openclaw fields refreshed at runtime so a live
+            # config switch reaches it.
+            runner._llm_provider = settings.llm_provider
+            for field in (
+                "_llm_openclaw_gateway_url",
+                "_llm_openclaw_gateway_token",
+                "_llm_openclaw_agent_id",
+                "_llm_openclaw_task_prompt_template",
+                "_llm_openclaw_model",
+                "_llm_openclaw_run_timeout_seconds",
+                "_llm_openclaw_poll_interval_seconds",
+                "_llm_openclaw_request_timeout_seconds",
+                "_llm_openclaw_thinking",
+                "_llm_openclaw_context",
+            ):
+                if hasattr(runner, field):
+                    setattr(runner, field, getattr(settings, field))
+            # B4: drop the lazy openclaw client cache so the next chat
+            # rebuilds with the new settings.
+            if hasattr(runner, "_openclaw_llm_client"):
+                runner._openclaw_llm_client = None
+            # Drop stale eager ``self.llm`` so any reader will re-trigger
+            # ``_ensure_openclaw_llm_client`` lazily on the next access.
+            if hasattr(runner, "llm"):
+                try:
+                    delattr(runner, "llm")
+                except AttributeError:
+                    pass
+            count += 1
         if hasattr(runner, "llm"):
-            from opentalking.providers.llm.openai_compatible.adapter import OpenAICompatibleLLMClient
+            if (provider or settings.llm_provider) == "openclaw_agent":
+                from opentalking.agent.openclaw_provider import OpenClawAgentLLMClient
 
-            runner.llm = OpenAICompatibleLLMClient(
-                base_url=settings.llm_base_url,
-                api_key=settings.llm_api_key,
-                model=settings.llm_model,
-            )
+                runner.llm = OpenClawAgentLLMClient(
+                    gateway_url=settings.llm_openclaw_gateway_url,
+                    gateway_token=settings.llm_openclaw_gateway_token,
+                    agent_id=settings.llm_openclaw_agent_id,
+                    task_prompt_template=settings.llm_openclaw_task_prompt_template,
+                    model=settings.llm_openclaw_model,
+                    run_timeout_seconds=settings.llm_openclaw_run_timeout_seconds,
+                    poll_interval_seconds=settings.llm_openclaw_poll_interval_seconds,
+                    request_timeout_seconds=settings.llm_openclaw_request_timeout_seconds,
+                    thinking=settings.llm_openclaw_thinking,
+                    context=settings.llm_openclaw_context,
+                )
+            else:
+                from opentalking.providers.llm.openai_compatible.adapter import OpenAICompatibleLLMClient
+
+                runner.llm = OpenAICompatibleLLMClient(
+                    base_url=settings.llm_base_url,
+                    api_key=settings.llm_api_key,
+                    model=settings.llm_model,
+                )
             count += 1
     return count
 

@@ -220,13 +220,13 @@ export function RuntimeConfigWorkspace({
 }: RuntimeConfigWorkspaceProps) {
   const runtimeConfigSyncedRef = useRef(false);
   const initialRuntimeFormRef = useRef<RuntimeConfigForm | null>(null);
-  const [runtimeForm, setRuntimeForm] = useState<RuntimeConfigForm>(() => runtimeFormFromConfig(runtimeConfig, true));
+  const [runtimeForm, setRuntimeForm] = useState<RuntimeConfigForm>(() => runtimeFormFromConfig(runtimeConfig, false));
 
   useEffect(() => {
     if (!runtimeConfig) return;
-    // First paint shows Qwen when persisted TTS is Edge, but this display-only prompt
-    // should not turn an unrelated save into a TTS provider change.
-    const nextRuntimeForm = runtimeFormFromConfig(runtimeConfig, !runtimeConfigSyncedRef.current);
+    // qiepai v0.2: 永远用后端真实 provider，不再 "preferDashscopeWhenEdge"（之前的设计是
+    // 故意把 edge 显示成 Qwen 推销，结果用户每次进来以为要手切回 EDGE，烦死）。
+    const nextRuntimeForm = runtimeFormFromConfig(runtimeConfig, false);
     setRuntimeForm(nextRuntimeForm);
     if (!runtimeConfigSyncedRef.current) {
       initialRuntimeFormRef.current = nextRuntimeForm;

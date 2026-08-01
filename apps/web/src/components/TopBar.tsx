@@ -28,7 +28,7 @@ const DOT_LABELS: Record<ConnectionStatus, string> = {
 };
 
 export type FlashtalkRecordPhase = "idle" | "recording" | "stopped";
-export type StudioWorkflow = "realtime" | "videoCreation" | "videoClone" | "assetLibrary" | "runtimeConfig";
+export type StudioWorkflow = "realtime" | "videoCreation" | "videoClone" | "assetLibrary" | "runtimeConfig" | "monitoring" | "cockpit" | "decisions" | "tasks" | "employees" | "integrations" | "marketplace";
 export type ConversationViewMode = "studio" | "immersive";
 
 interface TopBarProps {
@@ -104,18 +104,35 @@ export function TopBar({
         }
         aria-label="工作台模块"
       >
-        {[
-          ["realtime", "实时对话"],
-          ["videoCreation", "视频创作"],
-          ["videoClone", "视频克隆"],
-          ["assetLibrary", "资产库"],
-        ].map(([id, label]) => {
-          const active = workflow === id;
+        {([
+          ["realtime", "实时对话", false],
+          ["videoCreation", "视频创作", false],
+          ["videoClone", "视频克隆", false],
+          ["assetLibrary", "资产库", false],
+          // qiepai 业务层 P0-D tabs: cockpit / decisions / tasks / employees
+          // ❷-4 cockpit / ❷-5 decisions / ❷-6 tasks + employees 都已实装.
+          // ❸-1 integrations (飞书机器人) 已实装.
+          ["cockpit", "老板驾驶舱", false],
+          ["decisions", "决策中心", false],
+          ["tasks", "业务任务", false],
+          ["employees", "数字员工", false],
+          ["integrations", "集成", false],
+          // ❹ marketplace (场景模板): backend 还未实装, 先 isStub=true,
+          // 后端就绪后改 false 即可激活 MarketplaceTab 渲染 (前端 mock fallback 已就绪)
+          ["marketplace", "模板市场", true],
+        ] as Array<[StudioWorkflow, string, boolean]>).map(([id, label, isStub]) => {
+          const active = !isStub && workflow === id;
           return (
             <button
               key={id}
               type="button"
-              onClick={() => onWorkflowChange?.(id as StudioWorkflow)}
+              onClick={() => {
+                if (isStub) {
+                  onInactiveModuleClick?.(label);
+                } else {
+                  onWorkflowChange?.(id);
+                }
+              }}
               className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
                 active
                   ? "bg-white text-cyan-700 shadow-sm"

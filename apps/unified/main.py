@@ -71,6 +71,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from apps.api.core.config import get_settings
 from apps.api.routes.avatars import _call_adapter_warmup
 from apps.api.routes import agent, avatars, events, exports, health, memory, models, personas, runtime_config, scene_assets, sessions, tts_preview, video_clone, video_creation, voices
+from apps.api.routes.qiepai import router as qiepai_router
+from apps.api.services.qiepai.migration_runner import run_pending_migrations
+from apps.api.services.qiepai.outbox.worker import start_worker as start_outbox_worker
+from apps.api.services.qiepai.outbox.worker import stop_worker as stop_outbox_worker
+from apps.api.services.qiepai.marketplace.service import seed_builtin_templates
+from apps.api.services.qiepai.seed import seed_initial_metrics
 from opentalking.voice.store import init_voice_store
 from opentalking.core.in_memory_redis import InMemoryRedis
 from opentalking.pipeline.session.runner import SessionRunner
@@ -177,6 +183,41 @@ def _adapter_device(model_type: str, default_device: str) -> str:
 @asynccontextmanager
 async def unified_lifespan(app: FastAPI):
     init_voice_store()
+    # qiepai ❷-2: apply any pending DB migrations before routes start serving.
+    # Failures here only affect /api/qiepai/* — OpenTalking routes still boot.
+    try:
+        applied = await run_pending_migrations()
+        if applied:
+            log.info("qiepai migration: applied %s", applied)
+    except Exception:  # noqa: BLE001
+        log.exception("qiepai migration: startup apply failed; qiepai routes will 500")
+    # qiepai ❷-3: seed initial metric_definitions + metric_snapshots from
+    # data/qiepai-mock/*.json. Idempotent (INSERT OR IGNORE + stable PKs),
+    # runs *after* migrations so the target tables exist, and uses the
+    # same failure-isolation pattern as migrations above — a seed error
+    # only blanks the cockpit, never OpenTalking routes.
+    try:
+        inserted = await seed_initial_metrics()
+        if inserted:
+            log.info("qiepai seed: inserted %d metric rows", inserted)
+    except Exception:  # noqa: BLE001
+        log.exception("qiepai seed: startup seed failed; cockpit will show empty")
+    # qiepai ❹: seed builtin marketplace templates (4 rows across
+    # customer_service / sales / finance / hr, all ``source='builtin'``).
+    # Idempotent (INSERT OR IGNORE on deterministic stpl_builtin_* ids);
+    # same failure-isolation pattern as the metric seed — a marketplace
+    # seed error only blanks the marketplace tab, never OpenTalking.
+    try:
+        inserted_templates = await seed_builtin_templates()
+        if inserted_templates:
+            log.info(
+                "qiepai marketplace seed: inserted %d builtin templates",
+                inserted_templates,
+            )
+    except Exception:  # noqa: BLE001
+        log.exception(
+            "qiepai marketplace seed: startup seed failed; marketplace will be empty"
+        )
     settings = get_settings()
     app.state.settings = settings
     log.info(
@@ -245,7 +286,26 @@ async def unified_lifespan(app: FastAPI):
 
         asyncio.create_task(_prewarm())
 
+    # qiepai ❸-1: spawn the outbox worker (polls ``outbox_events`` and
+    # delivers rows to Feishu). Disabled by setting ``QIEPAI_OUTBOX_ENABLED=0``.
+    # The handle is captured in ``app.state.outbox_worker`` so the
+    # shutdown branch can gracefully cancel it.
+    outbox_handle = start_outbox_worker()
+    app.state.outbox_worker = outbox_handle
+    if outbox_handle is not None:
+        log.info(
+            "qiepai outbox worker: started (poll=%s batch=%s)",
+            os.environ.get("QIEPAI_OUTBOX_POLL_S", "2.0"),
+            os.environ.get("QIEPAI_OUTBOX_BATCH", "50"),
+        )
+    else:
+        log.info("qiepai outbox worker: not started (QIEPAI_OUTBOX_ENABLED=0)")
+
     yield
+    # Lifespan shutdown — graceful cancel of the outbox worker before the
+    # task_consumer so we drain any in-flight publish before the consumer
+    # tears down its session runners.
+    await stop_outbox_worker(getattr(app.state, "outbox_worker", None))
     consumer.cancel()
     try:
         await consumer
@@ -287,6 +347,8 @@ def create_app() -> FastAPI:
     app.include_router(video_clone.router)
     app.include_router(video_creation.router)
     app.include_router(voices.router)
+    # qiepai 业务层 (P0-D): ❷-1 子阶段仅占位路由, 后续 ❷-2 ~ ❷-6 阶段接真业务
+    app.include_router(qiepai_router, prefix="/api")
     _verify_offline_bundle_route_registered(app)
     return app
 

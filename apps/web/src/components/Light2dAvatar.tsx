@@ -164,5 +164,5 @@ export function Light2dAvatar({ renderer, stream, className = "", onRendererErro
     };
   }, [onRendererError, renderer.asset_base_url, renderer.config_url, stream]);
 
-  return <canvas ref={canvasRef} className={`h-full w-full object-contain ${className}`} aria-label="Light2D 动漫形象" />;
+  return <canvas ref={canvasRef} className={`max-h-full max-w-full ${className}`} aria-label="Light2D 动漫形象" data-light2d-canvas="true" />;
 }

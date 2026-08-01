@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AvatarSelectionStage, type AgentConfig } from "./components/AvatarSelectionStage";
+import { Monitoring } from "./components/Monitoring";
+import CockpitTab from "./qiepai/cockpit/CockpitTab";
+import DecisionsTab from "./qiepai/decisions/DecisionsTab";
+import TasksTab from "./qiepai/tasks/TasksTab";
+import EmployeesTab from "./qiepai/employees/EmployeesTab";
+import IntegrationsTab from "./qiepai/integrations/IntegrationsTab";
+import MarketplaceTab from "./qiepai/marketplace/MarketplaceTab";
 import { BailianVoiceClone } from "./components/BailianVoiceClone";
 import { ChatInput } from "./components/ChatInput";
 import { ChatMessages } from "./components/ChatMessages";
@@ -31,6 +38,7 @@ import {
   apiPut,
   apiUploadFile,
   buildApiUrl,
+  createMemoryLibrary,
   getMemoryLibraries,
   listSceneBackgrounds,
   listSceneCompositions,
@@ -99,6 +107,10 @@ import {
 } from "./light2d/avatarSelection";
 
 const MEMORY_PROFILE_ID = "default";
+
+// qiepai v0.2: local STT providers 不需要 API key（sensevoice/funasr/sherpa_onnx 本地模型）。
+// 上游 runtimeConfigReady 默认检查 stt.api_key_set，导致 local STT 永远显示“未配置”红牌。
+const LOCAL_STT_PROVIDERS = new Set(["sensevoice", "funasr", "sherpa_onnx"]);
 
 function bailianModelOptions(provider: TtsProviderExtended): { id: string; label: string }[] {
   switch (provider) {
@@ -1158,11 +1170,19 @@ export default function App() {
     if (next.tts.model) {
       setQwenModel(next.tts.model);
     }
+    // qiepai v0.2: 不再强制覆盖 voice。voice 是 user 在 SettingsPanel 改的
+    // （与 runtime-config 独立，不点保存就不会同步到后端 .env）。
+    // 如果 localStorage 里 user 还没选过，才填后端默认值。
     if (next.tts.voice) {
-      if (nextTtsProvider === "edge") {
-        setEdgeVoice(next.tts.voice);
-      } else {
-        setQwenVoice(next.tts.voice);
+      try {
+        const stored = window.localStorage.getItem(EDGE_VOICE_STORAGE_KEY);
+        if (!stored) {
+          if (nextTtsProvider === "edge") setEdgeVoice(next.tts.voice);
+          else setQwenVoice(next.tts.voice);
+        }
+      } catch {
+        if (nextTtsProvider === "edge") setEdgeVoice(next.tts.voice);
+        else setQwenVoice(next.tts.voice);
       }
     }
   }, []);
@@ -1254,6 +1274,16 @@ export default function App() {
       const next = Array.isArray(response.personas) ? response.personas : [];
       setPersonas(next);
       setSelectedPersonaId((current) => {
+        // qiepai v0.2: 如果还没有选过 persona 且后端有 persona，自动选第一个（默认 qiepai-mengwa）
+        if (!current && next.length > 0) {
+          const firstId = next[0].id;
+          try {
+            window.localStorage.setItem(SELECTED_PERSONA_STORAGE_KEY, firstId);
+          } catch {
+            /* ignore */
+          }
+          return firstId;
+        }
         if (!current || next.some((persona) => persona.id === current)) {
           return current;
         }
@@ -1387,7 +1417,22 @@ export default function App() {
     }
     try {
       const result = await getMemoryLibraries(MEMORY_PROFILE_ID, avatarId);
-      const items = Array.isArray(result.items) ? result.items : [];
+      let items = Array.isArray(result.items) ? result.items : [];
+      // qiepai v0.2: 列表为空时自动建一个默认库，避免“暂无记忆库”裸状态
+      if (items.length === 0) {
+        try {
+          await createMemoryLibrary({
+            id: "default",
+            name: "默认记忆库",
+            profile_id: MEMORY_PROFILE_ID,
+            character_id: avatarId,
+          });
+          const refetch = await getMemoryLibraries(MEMORY_PROFILE_ID, avatarId);
+          items = Array.isArray(refetch.items) ? refetch.items : [];
+        } catch (createError) {
+          console.warn("auto-create default memory library failed", createError);
+        }
+      }
       setMemoryLibraries(items);
       setMemoryLibraryId((current) => {
         if (!current || items.some((library) => library.id === current)) return current;
@@ -2888,7 +2933,7 @@ export default function App() {
   );
   const runtimeConfigReady = Boolean(
     runtimeConfig?.llm.api_key_set
-      && runtimeConfig.stt.api_key_set
+      && (LOCAL_STT_PROVIDERS.has(runtimeConfig.stt.provider) || runtimeConfig.stt.api_key_set)
       && runtimeConfigTtsReady
       && runtimeConfig.mem0?.llm.api_key_set
       && runtimeConfig.mem0?.embedder.api_key_set,
@@ -3028,6 +3073,28 @@ export default function App() {
             onRuntimeConfigApply={handleApplyRuntimeConfig}
           />
         </div>
+      ) : workflow === "monitoring" ? (
+        <Monitoring />
+      ) : workflow === "cockpit" ? (
+        <CockpitTab />
+      ) : workflow === "decisions" ? (
+        <DecisionsTab />
+      ) : workflow === "tasks" ? (
+        <TasksTab />
+      ) : workflow === "employees" ? (
+        <EmployeesTab />
+      ) : workflow === "integrations" ? (
+        <IntegrationsTab />
+      ) : workflow === "marketplace" ? (
+        <MarketplaceTab
+          onSwitchToEmployees={(newEmployeeId) => {
+            setWorkflow("employees");
+            notify(
+              `已从模板复制, 新建数字员工 (${newEmployeeId}) 已跳转到员工列表`,
+              "success",
+            );
+          }}
+        />
       ) : (
       <div
         className={
@@ -3126,7 +3193,7 @@ export default function App() {
                 avatarMaskUrl={showStart ? null : selectedAvatarMaskUrl}
                 avatarAdjust={immersiveActive ? immersiveAvatarAdjust : undefined}
                 compactSquareStage={compactSquareStage}
-                clientRenderer={!showStart && model === "mock" ? currentAvatar?.client_renderer ?? null : null}
+                clientRenderer={null}
                 className="h-full w-full"
               >
                 {immersiveActive ? (
