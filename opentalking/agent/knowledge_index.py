@@ -67,6 +67,17 @@ class KnowledgeIndex(Protocol):
     def query(self, *, kb_id: str, query: str, limit: int) -> list[LightRAGSearchResult]:
         ...
 
+    def search_relevant(
+        self, *, kb_id: str, query: str, limit: int
+    ) -> list[LightRAGSearchResult]:
+        """Alias for :meth:`query` matching the qiepai ❺ spec vocabulary.
+
+        Implemented by ``LightRAGKnowledgeIndex.search_relevant`` as a
+        direct forward to ``query`` so callers can use either name.
+        Default impl (Protocol-only) just forwards to ``query``.
+        """
+        return self.query(kb_id=kb_id, query=query, limit=limit)
+
     def status(self, *, kb_id: str) -> LightRAGStatus:
         ...
 
@@ -223,6 +234,37 @@ class LightRAGKnowledgeIndex:
         if not text:
             return []
         return [LightRAGSearchResult(doc_id="", text=text, score=1.0)]
+
+    def search_relevant(
+        self, *, kb_id: str, query: str, limit: int
+    ) -> list[LightRAGSearchResult]:
+        """qiepai ❺ spec-named alias. Forwards to :meth:`query`.
+
+        Kept as a thin wrapper so the public surface matches the
+        ``search_relevant()`` vocabulary used in the ❺ spec and
+        ``opentalking.agent.lightrag_client.search_relevant`` without
+        duplicating the input-validation logic in :meth:`query`.
+        """
+        return self.query(kb_id=kb_id, query=query, limit=limit)
+
+    @property
+    def embedding_model_name(self) -> str:
+        """Embedding model identifier this index will use for new docs.
+
+        Mirrors ``Settings.agent_lightrag_embedding_model`` (or the
+        ``opentalking-local-hash`` shim when no remote API is
+        configured). Surfaced via ``lightrag_client.lightrag_index_config``
+        for admin/debug endpoints and stored in
+        ``knowledge_bases.embedding_model`` by the ❺ migration.
+        """
+        if not self.uses_remote_models:
+            return "opentalking-local-hash"
+        return self.embedding_model
+
+    @property
+    def embedding_vector_dim(self) -> int:
+        """Vector dimension this index emits / accepts."""
+        return int(self.embedding_dim)
 
     def status(self, *, kb_id: str) -> LightRAGStatus:
         if not self._lightrag_available():

@@ -278,12 +278,17 @@ class Mem0MemoryProvider(MemoryProvider):
             "agent_id": character_id,
             "limit": max(0, int(limit)),
         }
-        try:
-            with _suppress_mem0_raw_logs():
-                raw = await _maybe_await(search(query, **kwargs))
-        except TypeError:
-            with _suppress_mem0_raw_logs():
-                raw = await _maybe_await(search(query=query, **kwargs))
+        # qiepai v0.2: mem0 2.x 的 search 也用 filters= 代替顶层 user_id/agent_id
+        with _suppress_mem0_raw_logs():
+            try:
+                raw = await _maybe_await(
+                    search(query, filters={"user_id": profile_id, "agent_id": character_id}, top_k=max(0, int(limit)))
+                )
+            except (TypeError, ValueError):
+                try:
+                    raw = await _maybe_await(search(query, **kwargs))
+                except TypeError:
+                    raw = await _maybe_await(search(query=query, **kwargs))
         items = self._normalize_raw_items(raw)
         return [
             item
@@ -479,12 +484,17 @@ class Mem0MemoryProvider(MemoryProvider):
         get_all = getattr(self._client, "get_all", None)
         if not callable(get_all):
             return []
-        try:
-            with _suppress_mem0_raw_logs():
-                raw = await _maybe_await(get_all(user_id=profile_id, agent_id=character_id))
-        except TypeError:
-            with _suppress_mem0_raw_logs():
-                raw = await _maybe_await(get_all(user_id=profile_id))
+        # qiepai v0.2: mem0 2.x 弃用了顶层 user_id/agent_id 参数，必须传 filters=
+        # 老 mem0 <2.0 还能用 user_id/agent_id，新 mem0 会抛 ValueError
+        with _suppress_mem0_raw_logs():
+            try:
+                raw = await _maybe_await(get_all(filters={"user_id": profile_id, "agent_id": character_id}))
+            except (TypeError, ValueError):
+                # 老 mem0 (<2.0) 没有 filters 参数，走顶层 user_id 兜底
+                try:
+                    raw = await _maybe_await(get_all(user_id=profile_id, agent_id=character_id))
+                except TypeError:
+                    raw = await _maybe_await(get_all(user_id=profile_id))
         return [
             item
             for item in self._normalize_raw_items(raw)

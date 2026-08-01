@@ -308,9 +308,20 @@ class FlashTalkRunner:
         flashtalk_client: Any | None = None,
         audio2video_client: Audio2VideoClient | None = None,
         custom_ref_image_path: str = "",
+        llm_provider: str = "",
         llm_base_url: str = "",
         llm_api_key: str = "",
         llm_model: str = "qwen-turbo",
+        llm_openclaw_gateway_url: str = "",
+        llm_openclaw_gateway_token: str = "",
+        llm_openclaw_agent_id: str = "",
+        llm_openclaw_task_prompt_template: str = "",
+        llm_openclaw_model: str = "",
+        llm_openclaw_run_timeout_seconds: int = 0,
+        llm_openclaw_poll_interval_seconds: float = 0.0,
+        llm_openclaw_request_timeout_seconds: float = 0.0,
+        llm_openclaw_thinking: str = "",
+        llm_openclaw_context: str = "",
         system_prompt: str = "你是一个友好的数字人助手，请用简洁的语言回答问题。",
         model_type: str = "flashtalk",
         wav2lip_postprocess_mode: str | None = None,
@@ -369,11 +380,55 @@ class FlashTalkRunner:
         self._allow_background_idle_cache = flashtalk_client is not None and self.model_type == "flashtalk"
 
         # LLM client
-        self.llm = OpenAICompatibleLLMClient(
-            base_url=llm_base_url,
-            api_key=llm_api_key,
-            model=llm_model,
+        _settings = get_settings()
+        self._llm_provider = (llm_provider or _settings.llm_provider or "openai_compatible").strip()
+        # Stash the openclaw init params as instance fields so
+        # ``_ensure_openclaw_llm_client`` can lazily construct the client
+        # on first chat (B4: deferred construction so missing token / agent_id
+        # doesn't fail ``__init__``).
+        self._llm_openclaw_gateway_url = llm_openclaw_gateway_url or _settings.llm_openclaw_gateway_url
+        self._llm_openclaw_gateway_token = llm_openclaw_gateway_token or _settings.llm_openclaw_gateway_token
+        self._llm_openclaw_agent_id = llm_openclaw_agent_id or _settings.llm_openclaw_agent_id
+        self._llm_openclaw_task_prompt_template = (
+            llm_openclaw_task_prompt_template
+            if llm_openclaw_task_prompt_template
+            else _settings.llm_openclaw_task_prompt_template
+        ) or "{prompt}"
+        self._llm_openclaw_model = llm_openclaw_model or _settings.llm_openclaw_model
+        self._llm_openclaw_run_timeout_seconds = (
+            llm_openclaw_run_timeout_seconds
+            if llm_openclaw_run_timeout_seconds > 0
+            else _settings.llm_openclaw_run_timeout_seconds
         )
+        self._llm_openclaw_poll_interval_seconds = (
+            llm_openclaw_poll_interval_seconds
+            if llm_openclaw_poll_interval_seconds > 0
+            else _settings.llm_openclaw_poll_interval_seconds
+        )
+        self._llm_openclaw_request_timeout_seconds = (
+            llm_openclaw_request_timeout_seconds
+            if llm_openclaw_request_timeout_seconds > 0
+            else _settings.llm_openclaw_request_timeout_seconds
+        )
+        self._llm_openclaw_thinking = llm_openclaw_thinking or _settings.llm_openclaw_thinking
+        self._llm_openclaw_context = (
+            llm_openclaw_context or _settings.llm_openclaw_context or "isolated"
+        ).strip() or "isolated"
+        # Lazy: only construct on first chat. ``self.llm`` is set as a
+        # backwards-compat attribute the first time the client is built.
+        self._openclaw_llm_client: Any = None
+        if self._llm_provider == "openclaw_agent":
+            # Backwards-compat: leave ``self.llm`` unbound for the openclaw
+            # branch so downstream readers trigger lazy construction via
+            # ``_ensure_openclaw_llm_client``. ``self.llm`` will be populated
+            # by the first ``_ensure_openclaw_llm_client`` call.
+            pass
+        else:
+            self.llm = OpenAICompatibleLLMClient(
+                base_url=llm_base_url,
+                api_key=llm_api_key,
+                model=llm_model,
+            )
         self.conversation = ConversationHistory(
             system_prompt=system_prompt,
             max_turns=20,
@@ -413,6 +468,38 @@ class FlashTalkRunner:
         self._debug_frame_trace = os.environ.get("OPENTALKING_RTC_DEBUG_FRAMES", "").strip().lower() in {"1", "true", "yes", "on"}
         self._debug_queued_video_count = 0
         self._debug_prev_video_mean: float | None = None
+
+    def _ensure_openclaw_llm_client(self) -> Any:
+        """Lazily construct the ``OpenClawAgentLLMClient`` (B4).
+
+        Deferred from ``__init__`` so missing token / agent_id doesn't fail
+        session startup. Also caches the per-qiepai-session requester
+        routing key (``f"qiepai:{session_id}"``) so concurrent sessions
+        don't share a gateway routing key (B1).
+        """
+        if self._openclaw_llm_client is not None:
+            return self._openclaw_llm_client
+        from opentalking.agent.openclaw_provider import OpenClawAgentLLMClient
+        client = OpenClawAgentLLMClient(
+            gateway_url=self._llm_openclaw_gateway_url,
+            gateway_token=self._llm_openclaw_gateway_token,
+            agent_id=self._llm_openclaw_agent_id,
+            task_prompt_template=self._llm_openclaw_task_prompt_template,
+            model=self._llm_openclaw_model,
+            run_timeout_seconds=self._llm_openclaw_run_timeout_seconds,
+            poll_interval_seconds=self._llm_openclaw_poll_interval_seconds,
+            request_timeout_seconds=self._llm_openclaw_request_timeout_seconds,
+            thinking=self._llm_openclaw_thinking,
+            context=self._llm_openclaw_context,
+            # Per-qiepai-session routing key (B1) — isolates concurrent
+            # sessions so they don't share a gateway requester key.
+            requester_session_key=f"qiepai:{self.session_id}",
+        )
+        self._openclaw_llm_client = client
+        # Backwards-compat: external readers that touch ``self.llm`` still
+        # get a working client.
+        self.llm = client
+        return client
 
     async def _build_agent_context(self, query: str = "") -> str | None:
         if not self.agent_config.agent_enabled:
@@ -2292,7 +2379,12 @@ class FlashTalkRunner:
                     t_first_token: float | None = None
                     try:
                         log.info("LLM streaming started for: %s", text[:50])
-                        async for delta in self.llm.chat_stream(_llm_request_messages()):
+                        # B4: lazy openclaw client; eager openai client.
+                        if getattr(self, "_llm_provider", "") == "openclaw_agent":
+                            _llm = self._ensure_openclaw_llm_client()
+                        else:
+                            _llm = self.llm
+                        async for delta in _llm.chat_stream(_llm_request_messages()):
                             if self._interrupt.is_set():
                                 break
                             piece = strip_emoji(delta)

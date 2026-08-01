@@ -64,6 +64,16 @@ def _flatten_config(raw: dict[str, Any] | None) -> dict[str, Any]:
             "api_key": "llm_api_key",
             "model": "llm_model",
             "system_prompt": "llm_system_prompt",
+            "openclaw_gateway_url": "llm_openclaw_gateway_url",
+            "openclaw_gateway_token": "llm_openclaw_gateway_token",
+            "openclaw_agent_id": "llm_openclaw_agent_id",
+            "openclaw_task_prompt_template": "llm_openclaw_task_prompt_template",
+            "openclaw_model": "llm_openclaw_model",
+            "openclaw_run_timeout_seconds": "llm_openclaw_run_timeout_seconds",
+            "openclaw_poll_interval_seconds": "llm_openclaw_poll_interval_seconds",
+            "openclaw_request_timeout_seconds": "llm_openclaw_request_timeout_seconds",
+            "openclaw_thinking": "llm_openclaw_thinking",
+            "openclaw_context": "llm_openclaw_context",
         },
         "agent": {
             "memory_sqlite_path": "agent_memory_sqlite_path",
@@ -442,6 +452,35 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "qwen-turbo"
     llm_system_prompt: str = "You are a friendly digital human assistant."
+
+    #: OpenClaw gateway-backed LLM provider. When ``llm_provider == "openclaw_agent"``
+    #: the runner builds an ``OpenClawAgentLLMClient`` that delegates each chat
+    #: turn to a sub-agent via the gateway's ``sessions_spawn`` tool.
+    #: Example: ``http://127.0.0.1:18789`` (OpenClaw default loopback port).
+    llm_openclaw_gateway_url: str = ""
+    #: Bearer token used to authenticate against the OpenClaw gateway. Maps
+    #: to the gateway's ``OPENCLAW_GATEWAY_TOKEN`` / ``gateway.auth.token``.
+    llm_openclaw_gateway_token: str = ""
+    #: Target sub-agent id passed to ``sessions_spawn`` as ``args.agentId``.
+    llm_openclaw_agent_id: str = ""
+    #: Task prompt template. ``{prompt}`` is the last user message;
+    #: ``{system}`` is the system prompt; ``{messages}`` is the full
+    #: conversation. Defaults to forwarding the raw user message.
+    llm_openclaw_task_prompt_template: str = "{prompt}"
+    #: Optional model override forwarded to ``sessions_spawn``.
+    llm_openclaw_model: str = ""
+    #: Maximum wall-clock seconds to wait for the spawned sub-agent to reply.
+    llm_openclaw_run_timeout_seconds: int = 600
+    #: Initial polling interval for ``sessions_history`` (doubles on empty
+    #: polls up to a 5x cap).
+    llm_openclaw_poll_interval_seconds: float = 1.5
+    #: Per-HTTP-request timeout for the gateway.
+    llm_openclaw_request_timeout_seconds: float = 65.0
+    #: Optional thinking-level override forwarded to ``sessions_spawn``.
+    llm_openclaw_thinking: str = ""
+    #: Sub-agent context mode: ``isolated`` (clean child) or ``fork`` (carries
+    #: the requester's transcript). Defaults to ``isolated``.
+    llm_openclaw_context: str = "isolated"
 
     #: edge | openai_compatible | xiaomi_mimo | dashscope | bailian | qwen | qwen_tts | cosyvoice | sambert | local_*（OPENTALKING_TTS_DEFAULT_PROVIDER）
     tts_default_provider: str = Field(default="")

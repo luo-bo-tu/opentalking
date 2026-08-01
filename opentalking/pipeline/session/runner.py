@@ -254,10 +254,21 @@ class SessionRunner:
         redis: Any,
         device: str = "cuda",
         tts_settings: Settings | None = None,
+        llm_provider: str = "",
         llm_base_url: str = "",
         llm_api_key: str = "",
         llm_model: str = "qwen-turbo",
         llm_system_prompt: str = "",
+        llm_openclaw_gateway_url: str = "",
+        llm_openclaw_gateway_token: str = "",
+        llm_openclaw_agent_id: str = "",
+        llm_openclaw_task_prompt_template: str = "",
+        llm_openclaw_model: str = "",
+        llm_openclaw_run_timeout_seconds: int = 0,
+        llm_openclaw_poll_interval_seconds: float = 0.0,
+        llm_openclaw_request_timeout_seconds: float = 0.0,
+        llm_openclaw_thinking: str = "",
+        llm_openclaw_context: str = "",
         wav2lip_postprocess_mode: str | None = None,
         agent_user_id: str | None = None,
         persona_id: str | None = None,
@@ -287,10 +298,43 @@ class SessionRunner:
         self.webrtc: WebRTCSession | None = None
         self.ready_event = asyncio.Event()
         self.speech_tasks: set[asyncio.Task[None]] = set()
+        # LLM provider dispatch. ``llm_provider`` empty = default to the
+        # resolved OpenAI-compatible provider (legacy behaviour).
+        self._llm_provider = (llm_provider or _SETTINGS.llm_provider or "openai_compatible").strip()
         self._llm_base_url = llm_base_url
         self._llm_api_key = llm_api_key
         self._llm_model = llm_model
         self._llm_system_prompt = llm_system_prompt or _SETTINGS.llm_system_prompt
+        # OpenClaw gateway-backed LLM provider config. Falls back to the
+        # process-wide ``Settings`` so callers can leave most fields blank.
+        self._llm_openclaw_gateway_url = llm_openclaw_gateway_url or _SETTINGS.llm_openclaw_gateway_url
+        self._llm_openclaw_gateway_token = llm_openclaw_gateway_token or _SETTINGS.llm_openclaw_gateway_token
+        self._llm_openclaw_agent_id = llm_openclaw_agent_id or _SETTINGS.llm_openclaw_agent_id
+        self._llm_openclaw_task_prompt_template = (
+            llm_openclaw_task_prompt_template
+            if llm_openclaw_task_prompt_template
+            else _SETTINGS.llm_openclaw_task_prompt_template
+        ) or "{prompt}"
+        self._llm_openclaw_model = llm_openclaw_model or _SETTINGS.llm_openclaw_model
+        self._llm_openclaw_run_timeout_seconds = (
+            llm_openclaw_run_timeout_seconds
+            if llm_openclaw_run_timeout_seconds > 0
+            else _SETTINGS.llm_openclaw_run_timeout_seconds
+        )
+        self._llm_openclaw_poll_interval_seconds = (
+            llm_openclaw_poll_interval_seconds
+            if llm_openclaw_poll_interval_seconds > 0
+            else _SETTINGS.llm_openclaw_poll_interval_seconds
+        )
+        self._llm_openclaw_request_timeout_seconds = (
+            llm_openclaw_request_timeout_seconds
+            if llm_openclaw_request_timeout_seconds > 0
+            else _SETTINGS.llm_openclaw_request_timeout_seconds
+        )
+        self._llm_openclaw_thinking = llm_openclaw_thinking or _SETTINGS.llm_openclaw_thinking
+        self._llm_openclaw_context = (
+            llm_openclaw_context or _SETTINGS.llm_openclaw_context or "isolated"
+        ).strip() or "isolated"
         self.agent_config = AgentSessionConfig(
             user_id=agent_user_id,
             agent_enabled=agent_enabled,
@@ -1705,17 +1749,64 @@ class SessionRunner:
                 )
                 self._active_timing = None
 
-    def _ensure_llm_client(self) -> OpenAICompatibleLLMClient:
+    def _ensure_llm_client(self) -> Any:
         if self._llm_client is None:
-            if not self._llm_base_url:
-                raise RuntimeError(
-                    "LLM 未配置：请设置 OPENTALKING_LLM_BASE_URL（OpenAI-compatible /v1）。"
+            llm_provider = getattr(self, "_llm_provider", "") or "openai_compatible"
+            if llm_provider == "openclaw_agent":
+                from opentalking.agent.openclaw_provider import OpenClawAgentLLMClient
+                # B3: read defaults from ``Settings`` so runtime config
+                # tweaks to e.g. ``llm_openclaw_task_prompt_template`` flow
+                # through here without the runner keeping its own copy.
+                settings = get_settings()
+                self._llm_client = OpenClawAgentLLMClient(
+                    gateway_url=getattr(self, "_llm_openclaw_gateway_url", "")
+                    or settings.llm_openclaw_gateway_url,
+                    gateway_token=getattr(self, "_llm_openclaw_gateway_token", "")
+                    or settings.llm_openclaw_gateway_token,
+                    agent_id=getattr(self, "_llm_openclaw_agent_id", "")
+                    or settings.llm_openclaw_agent_id,
+                    task_prompt_template=getattr(
+                        self, "_llm_openclaw_task_prompt_template", ""
+                    )
+                    or settings.llm_openclaw_task_prompt_template
+                    or "{prompt}",
+                    model=getattr(self, "_llm_openclaw_model", "")
+                    or settings.llm_openclaw_model,
+                    run_timeout_seconds=int(
+                        getattr(self, "_llm_openclaw_run_timeout_seconds", 0)
+                        or settings.llm_openclaw_run_timeout_seconds
+                        or 600
+                    ),
+                    poll_interval_seconds=float(
+                        getattr(self, "_llm_openclaw_poll_interval_seconds", 0.0)
+                        or settings.llm_openclaw_poll_interval_seconds
+                        or 1.5
+                    ),
+                    request_timeout_seconds=float(
+                        getattr(self, "_llm_openclaw_request_timeout_seconds", 0.0)
+                        or settings.llm_openclaw_request_timeout_seconds
+                        or 65.0
+                    ),
+                    thinking=getattr(self, "_llm_openclaw_thinking", "")
+                    or settings.llm_openclaw_thinking,
+                    context=getattr(self, "_llm_openclaw_context", "")
+                    or settings.llm_openclaw_context
+                    or "isolated",
+                    # B1: per-qiepai-session requester routing key so
+                    # concurrent sessions don't share a gateway requester
+                    # session (avoids cross-session transcript pollution).
+                    requester_session_key=f"qiepai:{self.session_id}",
                 )
-            self._llm_client = OpenAICompatibleLLMClient(
-                base_url=self._llm_base_url,
-                api_key=self._llm_api_key,
-                model=self._llm_model,
-            )
+            else:
+                if not self._llm_base_url:
+                    raise RuntimeError(
+                        "LLM 未配置：请设置 OPENTALKING_LLM_BASE_URL（OpenAI-compatible /v1）。"
+                    )
+                self._llm_client = OpenAICompatibleLLMClient(
+                    base_url=self._llm_base_url,
+                    api_key=self._llm_api_key,
+                    model=self._llm_model,
+                )
         return self._llm_client
 
     def _ensure_conversation(self) -> ConversationHistory:
