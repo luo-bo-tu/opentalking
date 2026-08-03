@@ -77,32 +77,3 @@ export function canChangeModelForAvatar(
   return !isDogoLight2dAvatar(avatar) || nextModel === "mock";
 }
 
-export type VideoCreationAvatarState = {
-  model: string;
-  modelLocked: boolean;
-  referenceDisabled: boolean;
-  duoDisabled: boolean;
-  backgroundDisabled: boolean;
-};
-
-export function videoCreationStateForAvatar(
-  avatar: SelectableAvatar | null | undefined,
-  requestedModel: string,
-): VideoCreationAvatarState {
-  const locked = isDogoLight2dAvatar(avatar);
-  return {
-    model: locked ? "mock" : requestedModel,
-    modelLocked: locked,
-    referenceDisabled: locked,
-    duoDisabled: locked,
-    backgroundDisabled: locked,
-  };
-}
-
-export function videoCreationCompositionForAvatar<
-  T extends { background_id?: string | null },
->(avatar: SelectableAvatar | null | undefined, composition: T): Omit<T, "background_id"> | T {
-  if (!isDogoLight2dAvatar(avatar)) return composition;
-  const { background_id: _backgroundId, ...withoutBackground } = composition;
-  return withoutBackground;
-}

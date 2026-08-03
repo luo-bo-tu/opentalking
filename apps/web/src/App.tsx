@@ -25,10 +25,6 @@ import { AssetLibraryWorkspace, type AssetLibraryTab } from "./components/AssetL
 import { VideoCloneWorkspace } from "./components/VideoCloneWorkspace";
 import { playWithMutedFallback } from "./components/VideoBackground";
 import {
-  DEFAULT_VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG,
-  VideoCreationWorkspace,
-} from "./components/VideoCreationWorkspace";
-import {
   ApiError,
   applyRuntimeConfig,
   apiDelete,
@@ -212,7 +208,6 @@ const CUSTOM_REFERENCE_NAME_KEY = "opentalking-custom-reference-name";
 const SELECTED_AVATAR_STORAGE_KEY = "opentalking-selected-avatar-id";
 const SELECTED_AVATAR_SOURCE_STORAGE_KEY = "opentalking-selected-avatar-source-v1";
 const FASTLIVEPORTRAIT_CONFIG_STORAGE_KEY = "opentalking-fasterliveportrait-config-v2";
-const VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG_STORAGE_KEY = "opentalking-video-creation-fasterliveportrait-config-v4";
 const ASR_PROVIDER_STORAGE_KEY = "opentalking-asr-provider-v1";
 const CLIENT_USER_ID_KEY = "opentalking-client-user-id";
 const AGENT_CONFIG_STORAGE_KEY = "opentalking-agent-config-v1";
@@ -294,25 +289,6 @@ const OVERDRIVEN_FASTLIVEPORTRAIT_DEFAULT_CONFIG: FasterLivePortraitConfig = {
   flag_pasteback: true,
   flag_relative_motion: true,
   flag_normalize_lip: true,
-  flag_lip_retargeting: false,
-};
-const BROKEN_VIDEO_CREATION_FASTLIVEPORTRAIT_DEFAULT_CONFIG: FasterLivePortraitConfig = {
-  head_motion_multiplier: 0.25,
-  pose_motion_multiplier: 0.35,
-  yaw_multiplier: 0.85,
-  pitch_multiplier: 1.0,
-  roll_multiplier: 0.85,
-  animation_region: "all",
-  expression_multiplier: 1.12,
-  mouth_open_multiplier: 3.35,
-  mouth_corner_multiplier: 0.78,
-  cheek_jaw_multiplier: 0.9,
-  driving_multiplier: 1.12,
-  cfg_scale: 5.15,
-  flag_stitching: true,
-  flag_pasteback: true,
-  flag_relative_motion: true,
-  flag_normalize_lip: false,
   flag_lip_retargeting: false,
 };
 
@@ -684,23 +660,6 @@ function readStoredFasterLivePortraitConfig(): FasterLivePortraitConfig {
   }
 }
 
-function readStoredVideoCreationFasterLivePortraitConfig(): FasterLivePortraitConfig {
-  try {
-    const raw = window.localStorage.getItem(VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG_STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG };
-    const stored = sanitizeFasterLivePortraitConfig(JSON.parse(raw), {
-      ...DEFAULT_VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG,
-    });
-    if (sameFasterLivePortraitConfig(stored, BROKEN_VIDEO_CREATION_FASTLIVEPORTRAIT_DEFAULT_CONFIG)) {
-      window.localStorage.removeItem(VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG_STORAGE_KEY);
-      return { ...DEFAULT_VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG };
-    }
-    return stored;
-  } catch {
-    return { ...DEFAULT_VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG };
-  }
-}
-
 /** From Vite env: max bubbles to show (most recent). 0 = show full history. */
 function readChatMaxVisible(): number {
   const raw = import.meta.env.VITE_CHAT_MAX_VISIBLE;
@@ -935,9 +894,6 @@ export default function App() {
   );
   const [fasterliveportraitAppliedConfig, setFasterliveportraitAppliedConfig] = useState<FasterLivePortraitConfig>(
     readStoredFasterLivePortraitConfig,
-  );
-  const [videoCreationFasterliveportraitConfig, setVideoCreationFasterliveportraitConfig] = useState<FasterLivePortraitConfig>(
-    readStoredVideoCreationFasterLivePortraitConfig,
   );
   const [fasterliveportraitApplying, setFasterliveportraitApplying] = useState(false);
   const [workflow, setWorkflow] = useState<StudioWorkflow>("realtime");
@@ -1695,17 +1651,6 @@ export default function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(
-        VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG_STORAGE_KEY,
-        JSON.stringify(videoCreationFasterliveportraitConfig),
-      );
-    } catch {
-      /* ignore */
-    }
-  }, [videoCreationFasterliveportraitConfig]);
-
-  useEffect(() => {
-    try {
       window.localStorage.setItem(SESSION_PANEL_COLLAPSED_KEY, sessionPanelCollapsed ? "1" : "0");
     } catch {
       /* ignore */
@@ -2398,13 +2343,7 @@ export default function App() {
     setFasterliveportraitConfig({ ...DEFAULT_FASTLIVEPORTRAIT_CONFIG });
   }, []);
 
-  const handleVideoCreationFasterLivePortraitConfigChange = useCallback((config: FasterLivePortraitConfig) => {
-    setVideoCreationFasterliveportraitConfig(
-      sanitizeFasterLivePortraitConfig(config, { ...DEFAULT_VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG }),
-    );
-  }, []);
-
-  const handleApplyFasterLivePortraitConfig = useCallback(async () => {
+const handleApplyFasterLivePortraitConfig = useCallback(async () => {
     const next = sanitizeFasterLivePortraitConfig(fasterliveportraitConfig);
     setFasterliveportraitConfig(next);
     const sid = sessionIdRef.current;
@@ -3018,36 +2957,6 @@ export default function App() {
             onSceneClear={handleSceneClear}
             onSceneBackgroundsChange={setSceneBackgrounds}
             onSceneCompositionsChange={handleSceneCompositionsChange}
-          />
-        </div>
-      ) : workflow === "videoCreation" ? (
-        <div className="flex min-h-0 lg:h-[calc(100vh-3.5rem)]">
-          <VideoCreationWorkspace
-            avatars={avatars}
-            avatarId={avatarId}
-            sceneBackgrounds={sceneBackgrounds}
-            sceneCompositions={sceneCompositions}
-            selectedSceneIdsByAvatar={selectedSceneIdsByAvatar}
-            models={models}
-            onAvatarChange={handleAvatarChange}
-            onAvatarUploaded={handleVideoCloneAvatarUploaded}
-            onVoiceCloned={applyClonedVoice}
-            onExportCreated={() => setAssetLibraryRefreshKey((value) => value + 1)}
-            onGoAssetLibrary={() => setWorkflow("assetLibrary")}
-            onNotify={notify}
-            ttsProvider={ttsProvider}
-            onTtsProviderChange={setTtsProvider}
-            qwenModel={qwenModel}
-            onQwenModelChange={setQwenModel}
-            qwenModelOptions={bailianModels}
-            qwenVoice={qwenVoice}
-            onQwenVoiceChange={setQwenVoice}
-            qwenVoiceOptions={bailianVoices}
-            edgeVoice={edgeVoice}
-            onEdgeVoiceChange={setEdgeVoice}
-            voiceCatalog={voiceCatalog}
-            fasterliveportraitConfig={videoCreationFasterliveportraitConfig}
-            onFasterLivePortraitConfigChange={handleVideoCreationFasterLivePortraitConfigChange}
           />
         </div>
       ) : workflow === "videoClone" ? (
