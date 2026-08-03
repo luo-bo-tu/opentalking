@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, buildApiUrl } from "../lib/api";
-import type { MemoryLibrary, PersonaSummary } from "../types";
+import type { MemoryLibrary } from "../types";
+import type { PersonaSummary } from "../lib/api";
 
 // qiepai v0.2: 运行监控页面
 // - 6 张状态卡片，每 5 秒自动刷新
@@ -13,7 +14,7 @@ type HealthSnapshot = {
 
 type RuntimeSnapshot = {
   llm: { base_url?: string; model?: string; api_key_set?: boolean };
-  stt: { provider?: string; model?: string; model_dir?: string };
+  stt: { provider?: string; model?: string; model_dir?: string; api_key_set?: boolean };
   tts: { provider?: string; voice?: string; api_key_set?: boolean };
   mem0?: { llm: { api_key_set?: boolean }; embedder: { api_key_set?: boolean } };
 };
@@ -71,7 +72,6 @@ export function Monitoring() {
   const [queue, setQueue] = useState<QueueSnapshot | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [errorCount, setErrorCount] = useState(0);
-  const [sttWarming, setSttWarming] = useState(false);
 
   const refresh = useCallback(async () => {
     const results = await Promise.allSettled([
@@ -165,9 +165,9 @@ export function Monitoring() {
         <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <header className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-950">语音识别 (STT)</h2>
-            <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${TONE_CLASSES[toneFor(sttReady, sttWarming)]}`}>
-              <span className={`inline-block h-1.5 w-1.5 rounded-full ${sttReady ? (sttWarming ? "bg-amber-500" : "bg-emerald-500") : "bg-red-500"}`} />
-              {sttReady ? (sttWarming ? "预热中" : TONE_LABEL.ok) : TONE_LABEL.err}
+            <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${TONE_CLASSES[toneFor(sttReady)]}`}>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${sttReady ? "bg-emerald-500" : "bg-red-500"}`} />
+              {sttReady ? TONE_LABEL.ok : TONE_LABEL.err}
             </span>
           </header>
           <dl className="space-y-1.5 text-xs">
