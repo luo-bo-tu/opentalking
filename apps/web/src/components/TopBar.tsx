@@ -28,7 +28,7 @@ const DOT_LABELS: Record<ConnectionStatus, string> = {
 };
 
 export type FlashtalkRecordPhase = "idle" | "recording" | "stopped";
-export type StudioWorkflow = "realtime" | "videoCreation" | "videoClone" | "assetLibrary" | "runtimeConfig" | "monitoring" | "cockpit" | "decisions" | "tasks" | "employees" | "integrations" | "marketplace";
+export type StudioWorkflow = "realtime" | "videoClone" | "assetLibrary" | "runtimeConfig" | "monitoring" | "cockpit" | "decisions" | "tasks" | "employees" | "integrations" | "marketplace";
 export type ConversationViewMode = "studio" | "immersive";
 
 interface TopBarProps {
@@ -106,7 +106,6 @@ export function TopBar({
       >
         {([
           ["realtime", "实时对话", false],
-          ["videoCreation", "视频创作", false],
           ["videoClone", "视频克隆", false],
           ["assetLibrary", "资产库", false],
           // qiepai 业务层 P0-D tabs: cockpit / decisions / tasks / employees
@@ -117,9 +116,13 @@ export function TopBar({
           ["tasks", "业务任务", false],
           ["employees", "数字员工", false],
           ["integrations", "集成", false],
-          // ❹ marketplace (场景模板): backend 还未实装, 先 isStub=true,
-          // 后端就绪后改 false 即可激活 MarketplaceTab 渲染 (前端 mock fallback 已就绪)
-          ["marketplace", "模板市场", true],
+          // ❹ marketplace (场景模板): 后端 已实装 (apps/api/routes/qiepai/marketplace.py,
+          // GET /api/qiepai/marketplace/templates 200 返回 10 个 builtin templates)。
+          // 之前 isStub=true 是因为后端未就绪, 现在后端已稳定激活 MarketplaceTab。
+          ["marketplace", "模板市场", false],
+          // 运行监控: Monitoring.tsx 全部实现 + 后端 6 个端点(/health /runtime-config
+          // /memory/libraries /personas /avatars /queue/status) 全 200, 现接入主循环。
+          ["monitoring", "运行监控", false],
         ] as Array<[StudioWorkflow, string, boolean]>).map(([id, label, isStub]) => {
           const active = !isStub && workflow === id;
           return (
@@ -143,14 +146,6 @@ export function TopBar({
             </button>
           );
         })}
-        <button
-          type="button"
-          className="rounded-md px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-white/70 hover:text-slate-700"
-          title="运行监控规划中"
-          onClick={() => onInactiveModuleClick?.("运行监控")}
-        >
-          运行监控
-        </button>
       </nav>
 
       <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
